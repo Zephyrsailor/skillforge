@@ -35,6 +35,15 @@ export class SkillRuntime {
 
     if (!skill) return null
 
+    // TODO: When engine !== 'direct' (e.g. 'claude-code', 'codex'), delegate
+    // execution to the corresponding agent-runner instead of calling execute()
+    // directly. The agent-runner integration will:
+    //   1. Spawn or connect to the target CLI agent
+    //   2. Inject the skill's instructions as system prompt
+    //   3. Pass userInput as the agent prompt
+    //   4. Stream or collect the agent's output as SkillResult
+    // For now, all skills run via direct execute() regardless of engine field.
+
     const ctx = {
       input: userInput,
       rawInput: userInput,

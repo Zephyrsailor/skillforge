@@ -28,6 +28,18 @@ export interface SkillDefinition<TInput = string, TOutput = string> {
    */
   keywords?: string[]
 
+  /**
+   * Execution engine for this skill.
+   * - 'direct' (default): execute() runs inline, no external agent needed.
+   * - 'claude-code': delegate to Claude Code agent-runner for complex tasks
+   *   (file editing, multi-step reasoning, tool orchestration).
+   * - 'codex': delegate to OpenAI Codex agent-runner.
+   *
+   * When engine !== 'direct', SkillRuntime should delegate execution to the
+   * corresponding agent-runner instead of calling execute() directly.
+   */
+  engine?: 'direct' | 'claude-code' | 'codex'
+
   /** Execute the skill. */
   execute(ctx: SkillContext<TInput>): Promise<SkillResult<TOutput>>
 }
