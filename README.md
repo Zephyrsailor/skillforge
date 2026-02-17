@@ -2,7 +2,32 @@
 
 **A pluggable, open framework for integrating CLI AI agents and sharing skills.**
 
-> 可插拔的开源框架，用于集成 CLI AI 工具（Claude Code、Codex、Gemini CLI 等）并构建可共享的 skill 生态。
+> Route any user prompt to the right skill, execute it via any AI backend. Everything can be a skill.
+
+---
+
+## Quick Demo
+
+```bash
+# List all available skills (loads from any SKILL.md directory)
+skillforge list --dir ~/clawdbot/skills
+# Total: 51 skills loaded
+
+# Route a prompt to the best skill (returns skill instructions)
+skillforge run --dir ~/clawdbot/skills "help me with github PR"
+# → Skill: github (0ms)
+# → [GitHub skill instructions: gh pr, gh issue, gh api usage...]
+
+# Route + execute via Claude Code
+skillforge run --dir ~/clawdbot/skills --engine claude-code "what's the weather in Shanghai"
+# → Skill: weather
+# → Claude Code executes with skill body as system prompt
+# → Output: actual weather result from wttr.in
+
+# Start an HTTP API server
+skillforge serve --dir ~/clawdbot/skills --port 3000
+# → POST /run { "prompt": "send a slack message" } → routes to slack skill
+```
 
 ---
 
@@ -10,53 +35,72 @@
 
 SkillForge is an open-source framework that:
 
-1. **Abstracts CLI AI agent integration** — run Claude Code, OpenAI Codex, Gemini CLI, or any ACP-compatible agent behind a unified interface.
-2. **Provides a portable skill system** — skills are Markdown files (`SKILL.md` + YAML frontmatter) that encode expert knowledge as reusable, composable AI capabilities.
-3. **Enables a skill marketplace** — publish, discover, and install skills from a registry, just like npm packages.
+1. **Routes user intent to skills** -- given a prompt, finds the best skill using TF-IDF-weighted keyword matching + name/tag/description scoring.
+2. **Loads skills from Markdown** -- skills are `SKILL.md` files with YAML frontmatter. Compatible with OpenClaw/clawdbot format (51/52 skills load out of the box).
+3. **Executes via any AI backend** -- with `--engine claude-code`, the skill body becomes a system prompt and gets executed by Claude Code via [agent-runner](https://github.com/Zephyrsailor/agent-runner).
 
 ---
 
-## 它解决什么问题？
+## How It Works
 
-现有 AI CLI 工具（Claude Code、Codex、Cursor 等）各自为政：
-- 集成方式不统一（有的用 spawn，有的用 HTTP，有的用 ACP 协议）
-- Skill/Plugin 格式互不兼容
-- 没有统一的发现和共享机制
-
-SkillForge 提供统一抽象层，让你：
-- 用同一套 API 驱动任意 CLI AI 后端
-- 用同一种格式编写 skill，在不同 agent 之间复用
-- 通过 registry 分享和安装 skill
+```
+User: "what's the weather in Shanghai?"
+  |
+  v
+[Router] TF-IDF scoring across 51 skills
+  |
+  v
+[weather skill] matched (score: 23.9)
+  |
+  +-- engine=direct  --> return SKILL.md body (instructions)
+  |
+  +-- engine=claude-code --> agent-runner spawns Claude Code
+                             systemPrompt = SKILL.md body
+                             prompt = "what's the weather in Shanghai?"
+                             --> Claude Code runs curl wttr.in
+                             --> returns actual weather data
+```
 
 ---
 
-## Architecture
+## Installation
 
+```bash
+npm install skillforge
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    SkillForge Core                       │
-│                                                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ Skill Loader │  │ Plugin System│  │  Event Bus    │  │
-│  │ (discovery, │  │ (register,   │  │  (hooks,      │  │
-│  │  routing,   │  │  load, jiti) │  │   lifecycle)  │  │
-│  │  injection) │  └──────────────┘  └───────────────┘  │
-│  └─────────────┘                                         │
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │                  Runner Layer                     │   │
-│  │  spawn() │ embedded SDK │ ACP ndjson │ HTTP/WS   │   │
-│  └──────────────────────────────────────────────────┘   │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-        ┌───────────────┼───────────────┐
-        ▼               ▼               ▼
-  ┌──────────┐   ┌──────────┐   ┌──────────────┐
-  │claude-   │   │  codex   │   │ gemini-cli   │
-  │code      │   │ adapter  │   │   adapter    │
-  │ adapter  │   └──────────┘   └──────────────┘
-  └──────────┘
+
+Or use directly with bun/tsx:
+
+```bash
+bun src/cli.ts run --dir ./skills "your prompt here"
 ```
+
+---
+
+## CLI Usage
+
+```bash
+# Route and execute a skill
+skillforge run <prompt>
+skillforge run --dir <path> --engine <engine> <prompt>
+
+# List all available skills
+skillforge list [--dir <path>]
+
+# Show skill details
+skillforge info <name> [--dir <path>]
+
+# Start HTTP API server
+skillforge serve [--dir <path>] [--port <port>] [--engine <engine>]
+```
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir <path>` | `./skills` | Skills directory (scans for `*/SKILL.md`) |
+| `--engine <engine>` | `direct` | `direct`, `claude-code`, or `codex` |
+| `--port <port>` | `3000` | HTTP server port (serve mode) |
 
 ---
 
@@ -65,156 +109,124 @@ SkillForge 提供统一抽象层，让你：
 A skill is a directory containing `SKILL.md`:
 
 ```
-skills/my-skill/
-├── SKILL.md          # required: frontmatter + instructions
-├── scripts/          # optional: executable helpers
-├── references/       # optional: lazy-loaded reference docs
-└── assets/           # optional: templates, outputs
+skills/weather/
+  SKILL.md     # required: YAML frontmatter + Markdown instructions
 ```
-
-`SKILL.md` example:
 
 ```markdown
 ---
-name: git-helper
-description: >
-  Helps with git operations: branching, rebasing, conflict resolution,
-  cherry-pick, bisect. Use when the user asks about git workflows.
-metadata:
-  skillforge:
-    tags: [dev-tools, git, vcs]
-    requires:
-      bins: [git]
-    install:
-      - type: brew
-        package: git
-user-invocable: true
+name: weather
+description: Get current weather and forecasts (no API key required).
+metadata: {"openclaw":{"emoji":"...","requires":{"bins":["curl"]}}}
 ---
 
-You are a git expert. When helping with git operations...
+# Weather
+
+Two free services, no API keys needed.
+
+## wttr.in (primary)
+
+curl -s "wttr.in/London?format=3"
 ```
 
----
-
-## CLI Integration Patterns
-
-SkillForge abstracts 5 integration patterns discovered from analyzing real-world CLI agents:
-
-| Pattern | Mechanism | Use case |
-|---------|-----------|----------|
-| **CLI Spawn** | `child_process.spawn()` + stdin/stdout | Claude Code, Codex CLI |
-| **Embedded SDK** | Direct SDK import, in-process | Anthropic API, OpenAI API |
-| **ACP Protocol** | ndjson stream via stdin/stdout | ACP-compatible agents |
-| **HTTP/SSE** | REST + streaming responses | Remote agents, Gemini |
-| **Plugin (jiti)** | Dynamic TS/JS module loading | Extensions, adapters |
+The YAML frontmatter provides routing metadata (name, description, tags). The Markdown body is the skill's instructions -- used as-is in direct mode, or as system prompt when executed via an AI agent.
 
 ---
 
-## Getting Started
-
-```bash
-# Install
-npm install -g skillforge
-
-# Run with Claude Code backend
-skillforge run --backend claude-code "Help me refactor this function"
-
-# Install a skill from registry
-skillforge skill install git-helper
-
-# List available skills
-skillforge skill list
-
-# Publish your skill
-skillforge skill publish ./my-skill/
-```
-
----
-
-## Plugin API
+## Programmatic API
 
 ```typescript
-import { definePlugin } from 'skillforge/sdk'
+import { SkillRuntime, defineSkill, loadSkillsFromDir } from 'skillforge'
 
-export default definePlugin({
-  id: 'my-plugin',
-  name: 'My Plugin',
-  version: '1.0.0',
-  register(api) {
-    api.registerSkill('./skills/my-skill')
-    api.registerTool({
-      name: 'my_tool',
-      description: 'Does something useful',
-      schema: { type: 'object', properties: { input: { type: 'string' } } },
-      execute: async ({ input }) => ({ result: `processed: ${input}` })
-    })
-    api.registerHook('pre-run', async (ctx) => {
-      // intercept before agent execution
-    })
+// Option 1: Define skills in TypeScript
+const mySkill = defineSkill({
+  name: 'greeting',
+  description: 'Responds to greetings',
+  keywords: ['hello', 'hi', 'hey'],
+  async execute(ctx) {
+    return { output: `Hello! You said: ${ctx.rawInput}`, skillName: 'greeting', durationMs: 0 }
   }
 })
+
+// Option 2: Load skills from SKILL.md files
+const mdSkills = await loadSkillsFromDir('./skills', { engine: 'claude-code' })
+
+// Create runtime and register
+const runtime = new SkillRuntime()
+runtime.register(mySkill)
+for (const s of mdSkills) runtime.register(s)
+
+// Route and execute
+const result = await runtime.handle('hello there')
+console.log(result?.output)  // "Hello! You said: hello there"
 ```
 
 ---
 
-## Skill Discovery & Routing (海量 Skill 场景)
+## HTTP API (serve mode)
 
-For large skill ecosystems (1000+ skills), SkillForge uses a two-phase retrieval architecture:
-
+```bash
+skillforge serve --dir ~/clawdbot/skills --port 3000
 ```
-User Intent
-    │
-    ▼
-┌─────────────────────────────┐
-│  Phase 1: Intent Classifier │  (tag/category filter, <10ms)
-│  skill tags + BM25 index    │
-└──────────────┬──────────────┘
-               │ top-20 candidates
-               ▼
-┌─────────────────────────────┐
-│  Phase 2: Semantic Ranker   │  (embedding similarity, ~50ms)
-│  local vector index         │
-│  (nomic-embed via ollama)   │
-└──────────────┬──────────────┘
-               │ top-3 skills
-               ▼
-         Context Injection
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/skills` | List all loaded skills |
+| `GET` | `/skills/:name` | Get skill details |
+| `POST` | `/run` | Route and execute a prompt |
+
+### POST /run
+
+```bash
+curl -X POST http://localhost:3000/run \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "help me with github PR"}'
+```
+
+Response:
+```json
+{
+  "skillName": "github",
+  "output": "# GitHub Skill\n\nUse the `gh` CLI to interact...",
+  "durationMs": 0
+}
 ```
 
 ---
 
-## Skill as a Communication Protocol
+## Router
 
-> Skill 作为能力的标准化接口
+SkillForge uses a multi-phase scoring algorithm:
 
-A skill published by Person A encodes their expertise as a reusable, structured capability module. When Person B installs and uses that skill, they effectively access Person A's expertise via AI mediation.
+1. **Skill name match** (+20) -- exact name in input
+2. **Keyword match** (+10 each) -- word-boundary for single words, substring for phrases
+3. **Tag match** (+5 each) -- word-boundary matching
+4. **Description relevance** (IDF-weighted) -- TF-IDF scoring with stop word filtering and fuzzy prefix matching
 
-This creates an **async, standardized protocol for human capability transfer**:
-- Publish a skill = standardize your expertise
-- Install a skill = acquire that capability
-- Skills are versioned, discoverable, and composable
-
-Best suited to replace repetitive, encodable, operational human communication — not creative judgment or negotiation.
+For 50+ skills this achieves high routing accuracy without any ML model or embedding.
 
 ---
 
 ## Roadmap
 
-- [ ] Core runner with Claude Code + Codex adapters
-- [ ] Skill loader with 4-layer discovery (bundled → global → workspace → local)
-- [ ] Plugin system with jiti dynamic loading
-- [ ] Event bus with lifecycle hooks
-- [ ] CLI: `skillforge run / skill install / skill publish`
-- [ ] Local skill index + BM25 search
-- [ ] Skill registry (HTTP API)
-- [ ] Vector-based skill routing (phase 2 retrieval)
+- [x] Core runtime: registry, router, skill execution
+- [x] SKILL.md loader (compatible with OpenClaw/clawdbot)
+- [x] CLI: `run`, `list`, `info`, `serve`
+- [x] Agent-runner integration (Claude Code, Codex)
+- [x] TF-IDF router with name/keyword/tag/description scoring
+- [x] HTTP API server mode
+- [ ] Skill registry (publish/install from remote)
+- [ ] Vector-based semantic routing (phase 2)
+- [ ] Plugin system with lifecycle hooks
 - [ ] Skill marketplace UI
 
 ---
 
 ## Contributing
 
-See [DESIGN.md](./DESIGN.md) for architecture details and interface specifications.
+See [DESIGN.md](./DESIGN.md) for architecture details and [FEASIBILITY.md](./FEASIBILITY.md) for the "everything can be a skill" analysis.
 
 ---
 

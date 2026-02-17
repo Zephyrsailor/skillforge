@@ -32,3 +32,7 @@ export type {
   ParsedSkillMarkdown,
   LoadSkillOptions,
 } from './markdown-loader.js'
+
+// HTTP API server
+export { startServer } from './server.js'
+export type { ServeOptions } from './server.js'

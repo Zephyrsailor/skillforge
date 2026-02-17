@@ -6,11 +6,13 @@
  *   skillforge run <prompt>         Route and execute a skill
  *   skillforge list [--dir <path>]  List registered skills
  *   skillforge info <name>          Show skill details
+ *   skillforge serve [--port N]     Start HTTP API server
  */
 
 import { resolve } from 'node:path'
 import { SkillRuntime } from './runtime.js'
 import { loadSkillsFromDir } from './markdown-loader.js'
+import { startServer } from './server.js'
 import type { LoadSkillOptions } from './markdown-loader.js'
 
 const DEFAULT_SKILLS_DIR = './skills'
@@ -23,12 +25,12 @@ Usage:
   skillforge run <prompt>           Route and execute a skill
   skillforge list [--dir <path>]    List all available skills
   skillforge info <name>            Show skill details
+  skillforge serve [--port <port>]  Start HTTP API server
 
 Options:
   --dir <path>       Skills directory (default: ./skills)
   --engine <engine>  Execution engine: direct, claude-code, codex (default: direct)
-                     When set to claude-code or codex, SKILL.md body is used as
-                     system prompt and the user prompt is sent to the agent.
+  --port <port>      HTTP server port (default: 3000, serve mode only)
   --help             Show this help message
 
 Examples:
@@ -36,7 +38,8 @@ Examples:
   skillforge run --dir ~/clawdbot/skills "what's the weather in Shanghai"
   skillforge run --dir ~/clawdbot/skills --engine claude-code "help me with git rebase"
   skillforge list --dir /path/to/skills
-  skillforge info git-helper`)
+  skillforge info git-helper
+  skillforge serve --dir ~/clawdbot/skills --port 3000`)
 }
 
 /** Extract a named flag's value from args, or undefined. */
@@ -166,6 +169,16 @@ async function main(): Promise<void> {
       if (skill.tags) console.log(`Tags:        ${skill.tags.join(', ')}`)
       console.log(`Engine:      ${skill.engine ?? 'direct'}`)
       if (skill.keywords) console.log(`Keywords:    ${skill.keywords.join(', ')}`)
+      break
+    }
+
+    case 'serve': {
+      const port = parseInt(getFlag(restArgs, '--port') ?? '3000', 10)
+      if (isNaN(port) || port < 1 || port > 65535) {
+        console.error(`Invalid port: ${getFlag(restArgs, '--port')}`)
+        process.exit(1)
+      }
+      startServer({ port, runtime })
       break
     }
 
