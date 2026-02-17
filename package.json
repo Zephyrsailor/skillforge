@@ -2,7 +2,11 @@
   "name": "skillforge",
   "version": "0.1.0",
   "description": "Pluggable open framework for CLI AI agent integration and skill sharing",
+  "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "import": "./src/index.ts",
