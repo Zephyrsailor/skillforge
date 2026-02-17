@@ -77,8 +77,8 @@ export function parseFrontmatter(
     )
   }
 
-  const rawYaml = match[1]
-  const body = match[2].trim()
+  const rawYaml = match[1]!
+  const body = match[2]!.trim()
 
   let frontmatter: SkillFrontmatter
   try {
@@ -114,8 +114,8 @@ function parseFrontmatterFallback(rawYaml: string): SkillFrontmatter {
     // Detect top-level key (no leading whitespace, has colon)
     const topMatch = line.match(/^(\w[\w-]*):\s*(.*)$/)
     if (topMatch) {
-      const key = topMatch[1]
-      const value = topMatch[2]
+      const key = topMatch[1]!
+      const value = topMatch[2]!
 
       if (key === 'metadata') {
         // metadata might be inline JSON or multi-line
@@ -239,10 +239,13 @@ async function executeViaAgent(
         }): Promise<{ text: string; durationMs: number }>
       }
     }
+    // Dynamic imports use string expressions so tsc doesn't resolve them
+    const npmPkg = '@shurenwei/agent-runner'
+    const devPath = '../../agent-runner/src/index.js'
     try {
-      mod = await import('@shurenwei/agent-runner')
+      mod = await import(npmPkg)
     } catch {
-      mod = await import('../../agent-runner/src/index.js')
+      mod = await import(devPath)
     }
 
     const { AgentRunner } = mod

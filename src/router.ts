@@ -170,5 +170,5 @@ export function routeBest(
   input: string,
 ): SkillDefinition | null {
   const matches = route(skills, input)
-  return matches.length > 0 ? matches[0].skill : null
+  return matches.length > 0 ? matches[0]!.skill : null
 }

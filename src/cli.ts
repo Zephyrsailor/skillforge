@@ -54,10 +54,10 @@ function stripFlags(args: string[], flags: string[]): string[] {
   const result: string[] = []
   let i = 0
   while (i < args.length) {
-    if (flags.includes(args[i]) && args[i + 1]) {
+    if (flags.includes(args[i]!) && args[i + 1]) {
       i += 2 // skip flag + value
     } else {
-      result.push(args[i])
+      result.push(args[i]!)
       i++
     }
   }
@@ -87,13 +87,13 @@ async function main(): Promise<void> {
   const engine = engineArg as LoadSkillOptions['engine']
 
   // Load skills from directory
-  let skills
+  let skills: Awaited<ReturnType<typeof loadSkillsFromDir>>
   try {
     skills = await loadSkillsFromDir(skillsDir, { engine })
   } catch {
     console.error(`Failed to load skills from: ${skillsDir}`)
     console.error('Use --dir to specify a valid skills directory.')
-    process.exit(1)
+    return process.exit(1)
   }
 
   const runtime = new SkillRuntime()
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
       const name = infoParts[0]
       if (!name) {
         console.error('Error: missing skill name. Usage: skillforge info <name>')
-        process.exit(1)
+        return process.exit(1)
       }
 
       const skill = runtime.registry.get(name)
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
         for (const s of runtime.registry.list()) {
           console.log(`  - ${s.name}`)
         }
-        process.exit(1)
+        return process.exit(1)
       }
 
       console.log(`Name:        ${skill.name}`)
