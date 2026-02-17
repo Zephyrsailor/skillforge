@@ -177,6 +177,23 @@ skillforge serve --dir ~/clawdbot/skills --port 3000
 | `GET` | `/skills/:name` | Get skill details |
 | `POST` | `/run` | Route and execute a prompt |
 
+### GET /skills
+
+```bash
+curl http://localhost:3000/skills
+```
+
+```json
+{
+  "skills": [
+    { "name": "github", "description": "Interact with GitHub using the `gh` CLI...", "tags": [], "engine": "direct" },
+    { "name": "weather", "description": "Get current weather and forecasts...", "tags": [], "engine": "direct" },
+    { "name": "discord", "description": "Manage Discord bots and servers...", "tags": [], "engine": "direct" }
+  ],
+  "total": 51
+}
+```
+
 ### POST /run
 
 ```bash
@@ -185,12 +202,27 @@ curl -X POST http://localhost:3000/run \
   -d '{"prompt": "help me with github PR"}'
 ```
 
-Response:
 ```json
 {
   "skillName": "github",
-  "output": "# GitHub Skill\n\nUse the `gh` CLI to interact...",
+  "output": "# GitHub Skill\n\nUse the `gh` CLI to interact with GitHub...\n\n## Pull Requests\n\nCheck CI status on a PR:\n\n```bash\ngh pr checks 55 --repo owner/repo\n```\n...",
   "durationMs": 0
+}
+```
+
+### GET /skills/:name
+
+```bash
+curl http://localhost:3000/skills/weather
+```
+
+```json
+{
+  "name": "weather",
+  "description": "Get current weather and forecasts (no API key required).",
+  "tags": ["tools", "weather"],
+  "keywords": [],
+  "engine": "direct"
 }
 ```
 

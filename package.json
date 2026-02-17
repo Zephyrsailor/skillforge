@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Pluggable open framework for CLI AI agent integration and skill sharing",
   "license": "MIT",
+  "keywords": ["skill", "ai-agent", "claude-code", "routing", "plugin", "cli", "llm", "automation"],
   "type": "module",
   "publishConfig": {
     "access": "public"
