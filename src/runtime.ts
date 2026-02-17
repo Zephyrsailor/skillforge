@@ -3,6 +3,10 @@
  *
  * Accepts user input, routes to the best skill, executes it, returns the result.
  * Combines Registry + Router into a single convenient API.
+ *
+ * Agent-runner delegation is handled by each skill's execute() function.
+ * SKILL.md skills loaded with engine='claude-code' will automatically delegate
+ * to agent-runner when executed. The runtime doesn't need to know the details.
  */
 
 import { SkillRegistry } from './registry.js'
@@ -25,6 +29,10 @@ export class SkillRuntime {
   /**
    * Handle user input: route to the best skill and execute it.
    * Returns null if no skill matches the input.
+   *
+   * The skill's execute() handles engine delegation internally:
+   * - 'direct' skills return their output directly
+   * - 'claude-code'/'codex' skills delegate to agent-runner
    */
   async handle(
     userInput: string,
@@ -34,11 +42,6 @@ export class SkillRuntime {
     const skill = routeBest(skills, userInput)
 
     if (!skill) return null
-
-    // When engine !== 'direct', delegate to agent-runner
-    if (skill.engine && skill.engine !== 'direct') {
-      return this.executeViaAgentRunner(skill, userInput)
-    }
 
     const ctx = {
       input: userInput,
@@ -66,69 +69,5 @@ export class SkillRuntime {
   /** List all registered skill names. */
   listSkills(): string[] {
     return this.registry.list().map((s) => s.name)
-  }
-
-  /**
-   * Execute a skill via agent-runner (Claude Code, Codex, etc.).
-   * Dynamically imports agent-runner to avoid hard dependency.
-   * Falls back to direct execute() if agent-runner is not available.
-   */
-  private async executeViaAgentRunner(
-    skill: SkillDefinition,
-    userInput: string,
-  ): Promise<SkillResult> {
-    const start = performance.now()
-
-    try {
-      // Try npm package first, fall back to local dev path
-      let agentRunnerModule: { AgentRunner: new (config: { backend: string }) => { run(opts: { prompt: string; systemPrompt?: string; mode?: string }): Promise<{ text: string; durationMs: number }> } }
-      try {
-        agentRunnerModule = await import('@shurenwei/agent-runner')
-      } catch {
-        // Dev mode: resolve from sibling directory
-        agentRunnerModule = await import('../../agent-runner/src/index.js')
-      }
-
-      const { AgentRunner } = agentRunnerModule
-      const backend = skill.engine === 'codex' ? 'codex' : 'claude-code'
-      const runner = new AgentRunner({ backend })
-
-      // Use the skill's execute body as system prompt context if it returns instructions
-      let systemPrompt: string | undefined
-      try {
-        const instructionResult = await skill.execute({
-          input: userInput,
-          rawInput: userInput,
-        })
-        if (instructionResult.output) {
-          systemPrompt = instructionResult.output
-        }
-      } catch {
-        // No instructions available, proceed without system prompt
-      }
-
-      const result = await runner.run({
-        prompt: userInput,
-        systemPrompt,
-        mode: 'print',
-      })
-
-      const durationMs = Math.round(performance.now() - start)
-      return {
-        output: result.text,
-        skillName: skill.name,
-        durationMs,
-      }
-    } catch {
-      // agent-runner not available; fall back to direct execute()
-      const ctx = { input: userInput, rawInput: userInput }
-      const result = await skill.execute(ctx)
-      const durationMs = Math.round(performance.now() - start)
-      return {
-        ...result,
-        skillName: skill.name,
-        durationMs,
-      }
-    }
   }
 }

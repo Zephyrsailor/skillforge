@@ -30,4 +30,5 @@ export {
 export type {
   SkillFrontmatter,
   ParsedSkillMarkdown,
+  LoadSkillOptions,
 } from './markdown-loader.js'

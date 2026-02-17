@@ -151,39 +151,125 @@ function parseFrontmatterFallback(rawYaml: string): SkillFrontmatter {
 }
 
 // ---------------------------------------------------------------------------
+// Load options
+// ---------------------------------------------------------------------------
+
+export interface LoadSkillOptions {
+  /**
+   * Override the execution engine for all loaded skills.
+   * When set to 'claude-code' or 'codex', execute() will delegate to agent-runner
+   * using the SKILL.md body as system prompt and the user input as the prompt.
+   * When 'direct' (default), execute() returns the raw body text.
+   */
+  engine?: 'direct' | 'claude-code' | 'codex'
+}
+
+// ---------------------------------------------------------------------------
 // Skill construction from parsed markdown
 // ---------------------------------------------------------------------------
 
 /**
  * Convert a parsed SKILL.md into a SkillDefinition.
  *
- * The execute() function returns the skill's body (instructions) as the output.
- * This is the simplest mode: the body serves as context/instructions for an
- * AI agent, or as direct textual output.
- *
- * For skills that need agent-runner execution, set `engine` in the frontmatter
- * or override after loading.
+ * Behavior depends on the engine setting:
+ * - 'direct' (default): execute() returns the skill's body (instructions) as text.
+ *   The caller can use this as context for their own AI integration.
+ * - 'claude-code' / 'codex': execute() delegates to agent-runner, passing the
+ *   body as systemPrompt and the user's input as prompt.
  */
-function markdownToSkill(parsed: ParsedSkillMarkdown): SkillDefinition {
+function markdownToSkill(
+  parsed: ParsedSkillMarkdown,
+  options?: LoadSkillOptions,
+): SkillDefinition {
   const { frontmatter, body } = parsed
+  const engine = options?.engine ?? 'direct'
+
   // Extract tags from skillforge or openclaw namespace (clawdbot compat)
   const tags =
     frontmatter.metadata?.skillforge?.tags ??
     frontmatter.metadata?.openclaw?.tags
 
+  const skillName = frontmatter.name
+
   return {
-    name: frontmatter.name,
+    name: skillName,
     description: frontmatter.description,
     tags,
+    engine,
     execute: async (
-      _ctx: SkillContext,
+      ctx: SkillContext,
     ): Promise<SkillResult> => {
+      // When engine is set, delegate to agent-runner
+      if (engine && engine !== 'direct') {
+        return executeViaAgent(skillName, body, ctx, engine)
+      }
+
+      // Default: return the SKILL.md body as instructions
       return {
         output: body,
-        skillName: frontmatter.name,
+        skillName,
         durationMs: 0,
       }
     },
+  }
+}
+
+/**
+ * Execute a SKILL.md skill via agent-runner.
+ * Uses the skill body as system prompt and the user input as the agent prompt.
+ */
+async function executeViaAgent(
+  skillName: string,
+  body: string,
+  ctx: SkillContext,
+  engine: string,
+): Promise<SkillResult> {
+  const start = performance.now()
+
+  try {
+    // Try npm package first, fall back to local dev path
+    let mod: {
+      AgentRunner: new (config: {
+        backend: string
+      }) => {
+        run(opts: {
+          prompt: string
+          systemPrompt?: string
+          mode?: string
+        }): Promise<{ text: string; durationMs: number }>
+      }
+    }
+    try {
+      mod = await import('@shurenwei/agent-runner')
+    } catch {
+      mod = await import('../../agent-runner/src/index.js')
+    }
+
+    const { AgentRunner } = mod
+    const backend = engine === 'codex' ? 'codex' : 'claude-code'
+    const runner = new AgentRunner({ backend })
+
+    const result = await runner.run({
+      prompt: ctx.rawInput,
+      systemPrompt: body, // SKILL.md body as system prompt
+      mode: 'print',
+    })
+
+    const durationMs = Math.round(performance.now() - start)
+    return {
+      output: result.text,
+      skillName,
+      durationMs,
+    }
+  } catch (err) {
+    // agent-runner not available: return body + error note
+    const durationMs = Math.round(performance.now() - start)
+    const msg = err instanceof Error ? err.message : String(err)
+    return {
+      output: `[agent-runner unavailable: ${msg}]\n\nSkill instructions (${skillName}):\n\n${body}`,
+      skillName,
+      durationMs,
+    }
   }
 }
 
@@ -193,14 +279,17 @@ function markdownToSkill(parsed: ParsedSkillMarkdown): SkillDefinition {
 
 /**
  * Load a single skill from a SKILL.md file.
+ *
+ * @param options.engine Override execution engine ('direct' | 'claude-code' | 'codex')
  */
 export async function loadSkillFromMarkdown(
   filePath: string,
+  options?: LoadSkillOptions,
 ): Promise<SkillDefinition> {
   const absPath = resolve(filePath)
   const content = await readFile(absPath, 'utf-8')
   const parsed = parseFrontmatter(content, absPath)
-  return markdownToSkill(parsed)
+  return markdownToSkill(parsed, options)
 }
 
 /**
@@ -209,9 +298,12 @@ export async function loadSkillFromMarkdown(
  *   dirPath/
  *     skill-a/SKILL.md
  *     skill-b/SKILL.md
+ *
+ * @param options.engine Override execution engine for all loaded skills
  */
 export async function loadSkillsFromDir(
   dirPath: string,
+  options?: LoadSkillOptions,
 ): Promise<SkillDefinition[]> {
   const absDir = resolve(dirPath)
   const entries = await readdir(absDir, { withFileTypes: true })
@@ -224,7 +316,7 @@ export async function loadSkillsFromDir(
     try {
       const fileStat = await stat(skillFile)
       if (fileStat.isFile()) {
-        const skill = await loadSkillFromMarkdown(skillFile)
+        const skill = await loadSkillFromMarkdown(skillFile, options)
         skills.push(skill)
       }
     } catch {

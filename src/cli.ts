@@ -11,8 +11,10 @@
 import { resolve } from 'node:path'
 import { SkillRuntime } from './runtime.js'
 import { loadSkillsFromDir } from './markdown-loader.js'
+import type { LoadSkillOptions } from './markdown-loader.js'
 
 const DEFAULT_SKILLS_DIR = './skills'
+const VALID_ENGINES = ['direct', 'claude-code', 'codex'] as const
 
 function usage(): void {
   console.log(`skillforge — route user input to skills
@@ -23,13 +25,40 @@ Usage:
   skillforge info <name>            Show skill details
 
 Options:
-  --dir <path>    Skills directory (default: ./skills)
-  --help          Show this help message
+  --dir <path>       Skills directory (default: ./skills)
+  --engine <engine>  Execution engine: direct, claude-code, codex (default: direct)
+                     When set to claude-code or codex, SKILL.md body is used as
+                     system prompt and the user prompt is sent to the agent.
+  --help             Show this help message
 
 Examples:
   skillforge run "what time is it"
+  skillforge run --dir ~/clawdbot/skills "what's the weather in Shanghai"
+  skillforge run --dir ~/clawdbot/skills --engine claude-code "help me with git rebase"
   skillforge list --dir /path/to/skills
   skillforge info git-helper`)
+}
+
+/** Extract a named flag's value from args, or undefined. */
+function getFlag(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag)
+  if (idx !== -1 && args[idx + 1]) return args[idx + 1]
+  return undefined
+}
+
+/** Remove flag + value pairs from args to get the remaining prompt. */
+function stripFlags(args: string[], flags: string[]): string[] {
+  const result: string[] = []
+  let i = 0
+  while (i < args.length) {
+    if (flags.includes(args[i]) && args[i + 1]) {
+      i += 2 // skip flag + value
+    } else {
+      result.push(args[i])
+      i++
+    }
+  }
+  return result
 }
 
 async function main(): Promise<void> {
@@ -41,15 +70,23 @@ async function main(): Promise<void> {
   }
 
   const command = args[0]
-  const dirIdx = args.indexOf('--dir')
-  const skillsDir = dirIdx !== -1 && args[dirIdx + 1]
-    ? resolve(args[dirIdx + 1])
-    : resolve(DEFAULT_SKILLS_DIR)
+  const restArgs = args.slice(1)
+
+  const skillsDir = resolve(getFlag(restArgs, '--dir') ?? DEFAULT_SKILLS_DIR)
+  const engineArg = getFlag(restArgs, '--engine') ?? 'direct'
+
+  if (!VALID_ENGINES.includes(engineArg as typeof VALID_ENGINES[number])) {
+    console.error(`Invalid engine: ${engineArg}`)
+    console.error(`Valid engines: ${VALID_ENGINES.join(', ')}`)
+    process.exit(1)
+  }
+
+  const engine = engineArg as LoadSkillOptions['engine']
 
   // Load skills from directory
   let skills
   try {
-    skills = await loadSkillsFromDir(skillsDir)
+    skills = await loadSkillsFromDir(skillsDir, { engine })
   } catch {
     console.error(`Failed to load skills from: ${skillsDir}`)
     console.error('Use --dir to specify a valid skills directory.')
@@ -63,17 +100,16 @@ async function main(): Promise<void> {
 
   switch (command) {
     case 'run': {
-      const prompt = args
-        .slice(1)
-        .filter((a) => a !== '--dir' && a !== skillsDir)
-        .join(' ')
+      const promptParts = stripFlags(restArgs, ['--dir', '--engine'])
+      const prompt = promptParts.join(' ')
 
       if (!prompt) {
         console.error('Error: missing prompt. Usage: skillforge run <prompt>')
         process.exit(1)
       }
 
-      console.log(`[${skills.length} skills loaded from ${skillsDir}]`)
+      const engineLabel = engine === 'direct' ? 'direct (returns instructions)' : engine
+      console.log(`[${skills.length} skills loaded | engine: ${engineLabel}]`)
       console.log()
 
       const result = await runtime.handle(prompt)
@@ -93,6 +129,7 @@ async function main(): Promise<void> {
 
     case 'list': {
       console.log(`Skills loaded from: ${skillsDir}`)
+      console.log(`Engine: ${engine}`)
       console.log(`Total: ${skills.length}\n`)
 
       for (const s of skills) {
@@ -107,7 +144,8 @@ async function main(): Promise<void> {
     }
 
     case 'info': {
-      const name = args[1]
+      const infoParts = stripFlags(restArgs, ['--dir', '--engine'])
+      const name = infoParts[0]
       if (!name) {
         console.error('Error: missing skill name. Usage: skillforge info <name>')
         process.exit(1)
@@ -126,7 +164,7 @@ async function main(): Promise<void> {
       console.log(`Name:        ${skill.name}`)
       console.log(`Description: ${skill.description}`)
       if (skill.tags) console.log(`Tags:        ${skill.tags.join(', ')}`)
-      if (skill.engine) console.log(`Engine:      ${skill.engine}`)
+      console.log(`Engine:      ${skill.engine ?? 'direct'}`)
       if (skill.keywords) console.log(`Keywords:    ${skill.keywords.join(', ')}`)
       break
     }
