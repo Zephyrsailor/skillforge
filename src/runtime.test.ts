@@ -172,4 +172,22 @@ describe('SkillRuntime', () => {
     await rt.handle('  capture  THIS  Input  ')
     expect(captured).toBe('  capture  THIS  Input  ')
   })
+
+  it('falls back to direct execute when engine is set but agent-runner unavailable', async () => {
+    const rt = new SkillRuntime()
+    rt.register({
+      name: 'agent-skill',
+      description: 'skill using agent engine',
+      keywords: ['agent'],
+      engine: 'claude-code',
+      async execute() {
+        return { output: 'fallback-output', skillName: 'agent-skill', durationMs: 0 }
+      },
+    })
+    // agent-runner is not importable in test env, so it should fall back
+    const result = await rt.handle('agent test')
+    expect(result).not.toBeNull()
+    expect(result!.skillName).toBe('agent-skill')
+    expect(result!.output).toBe('fallback-output')
+  })
 })

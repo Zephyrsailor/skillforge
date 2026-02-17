@@ -19,3 +19,15 @@ export { scoreSkill, route, routeBest } from './router.js'
 
 // Runtime (main entry point)
 export { SkillRuntime } from './runtime.js'
+
+// Markdown loader (SKILL.md format, compatible with clawdbot/OpenClaw)
+export {
+  loadSkillFromMarkdown,
+  loadSkillsFromDir,
+  parseSkillMarkdown,
+  parseFrontmatter,
+} from './markdown-loader.js'
+export type {
+  SkillFrontmatter,
+  ParsedSkillMarkdown,
+} from './markdown-loader.js'
