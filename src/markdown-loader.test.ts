@@ -58,6 +58,37 @@ body
     )
   })
 
+  it('falls back to line parser for unquoted colons in description', () => {
+    // This mimics clawdbot skills with long descriptions containing colons
+    const content = `---
+name: discord
+description: Control Discord from OpenClaw: send messages, react, manage threads.
+metadata: {"openclaw":{"emoji":"🎮","requires":{"config":["channels.discord"]}}}
+---
+
+Discord instructions here.
+`
+    const result = parseFrontmatter(content, 'discord.md')
+    expect(result.frontmatter.name).toBe('discord')
+    expect(result.frontmatter.description).toContain('Discord')
+    expect(result.frontmatter.metadata?.openclaw?.emoji).toBe('🎮')
+    expect(result.body).toBe('Discord instructions here.')
+  })
+
+  it('parses openclaw metadata namespace', () => {
+    const content = `---
+name: weather
+description: Get weather forecasts.
+metadata: {"openclaw":{"emoji":"🌤️","requires":{"bins":["curl"]}}}
+---
+
+Weather body.
+`
+    const result = parseFrontmatter(content, 'weather.md')
+    expect(result.frontmatter.metadata?.openclaw?.emoji).toBe('🌤️')
+    expect(result.frontmatter.metadata?.openclaw?.requires?.bins).toEqual(['curl'])
+  })
+
   it('handles multiline description', () => {
     const content = `---
 name: multi

@@ -20,6 +20,7 @@ import type { SkillDefinition, SkillContext, SkillResult } from './types.js'
 export interface SkillFrontmatter {
   name: string
   description: string
+  homepage?: string
   metadata?: {
     skillforge?: {
       tags?: string[]
@@ -28,6 +29,19 @@ export interface SkillFrontmatter {
         bins?: string[]
         anyBins?: string[]
         env?: string[]
+        config?: string[]
+      }
+      install?: Array<{ type: string; package?: string }>
+    }
+    // clawdbot/OpenClaw uses "openclaw" namespace
+    openclaw?: {
+      tags?: string[]
+      emoji?: string
+      requires?: {
+        bins?: string[]
+        anyBins?: string[]
+        env?: string[]
+        config?: string[]
       }
       install?: Array<{ type: string; package?: string }>
     }
@@ -69,9 +83,10 @@ export function parseFrontmatter(
   let frontmatter: SkillFrontmatter
   try {
     frontmatter = yaml.load(rawYaml) as SkillFrontmatter
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    throw new Error(`Invalid YAML frontmatter in ${filePath}: ${msg}`)
+  } catch {
+    // Fallback: simple line-based parser for files with unquoted colons
+    // in description fields (common in clawdbot skills)
+    frontmatter = parseFrontmatterFallback(rawYaml)
   }
 
   if (!frontmatter.name) {
@@ -82,6 +97,57 @@ export function parseFrontmatter(
   }
 
   return { frontmatter, body, filePath }
+}
+
+/**
+ * Fallback parser for frontmatter that js-yaml can't handle
+ * (e.g. unquoted colons in description values).
+ * Extracts top-level key: value pairs line by line.
+ */
+function parseFrontmatterFallback(rawYaml: string): SkillFrontmatter {
+  const lines = rawYaml.split('\n')
+  const result: Record<string, string> = {}
+  let metadataRaw = ''
+  let inMetadata = false
+
+  for (const line of lines) {
+    // Detect top-level key (no leading whitespace, has colon)
+    const topMatch = line.match(/^(\w[\w-]*):\s*(.*)$/)
+    if (topMatch) {
+      const key = topMatch[1]
+      const value = topMatch[2]
+
+      if (key === 'metadata') {
+        // metadata might be inline JSON or multi-line
+        inMetadata = true
+        metadataRaw = value
+        continue
+      }
+
+      inMetadata = false
+      result[key] = value
+    } else if (inMetadata) {
+      metadataRaw += line
+    }
+  }
+
+  // Try to parse metadata as JSON (common in clawdbot: inline JSON)
+  let metadata: SkillFrontmatter['metadata']
+  if (metadataRaw.trim()) {
+    try {
+      metadata = JSON.parse(metadataRaw.trim())
+    } catch {
+      // Can't parse metadata, skip it
+    }
+  }
+
+  return {
+    name: result['name'] ?? '',
+    description: result['description'] ?? '',
+    homepage: result['homepage'],
+    metadata,
+    'user-invocable': result['user-invocable'] === 'true',
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +166,10 @@ export function parseFrontmatter(
  */
 function markdownToSkill(parsed: ParsedSkillMarkdown): SkillDefinition {
   const { frontmatter, body } = parsed
-  const tags = frontmatter.metadata?.skillforge?.tags
+  // Extract tags from skillforge or openclaw namespace (clawdbot compat)
+  const tags =
+    frontmatter.metadata?.skillforge?.tags ??
+    frontmatter.metadata?.openclaw?.tags
 
   return {
     name: frontmatter.name,
